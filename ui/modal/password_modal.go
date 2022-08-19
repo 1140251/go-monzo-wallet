@@ -1,0 +1,220 @@
+package modal
+
+import (
+	"gioui.org/layout"
+	"gioui.org/text"
+	"gioui.org/widget"
+	"gioui.org/widget/material"
+	"go-monzo-wallet/ui/components"
+	"go-monzo-wallet/ui/handlers"
+	"go-monzo-wallet/ui/values"
+)
+
+const PasswordID = "password_page"
+
+type PasswordModal struct {
+	*handlers.Load
+	*components.Modal
+	*GenericPageModal
+
+	password components.Editor
+
+	dialogTitle string
+	description string
+
+	isLoading    bool
+	isCancelable bool
+
+	customWidget layout.Widget
+
+	materialLoader material.LoaderStyle
+
+	positiveButtonText    string
+	positiveButtonClicked func(password string, m *PasswordModal) bool // return true to dismiss dialog
+	btnPositve            components.Button
+
+	negativeButtonText    string
+	negativeButtonClicked func()
+	btnNegative           components.Button
+}
+
+func NewPasswordModal(l *handlers.Load) *PasswordModal {
+	pm := &PasswordModal{
+		Load:             l,
+		Modal:            l.Theme.ModalFloatTitle("password_modal"),
+		btnPositve:       l.Theme.Button(values.String(values.StrConfirm)),
+		btnNegative:      l.Theme.OutlineButton(values.String(values.StrCancel)),
+		isCancelable:     true,
+		GenericPageModal: NewGenericPageModal(PasswordID),
+	}
+
+	pm.btnPositve.Font.Weight = text.Medium
+
+	pm.btnNegative.Font.Weight = text.Medium
+	pm.btnNegative.Margin.Right = values.MarginPadding8
+
+	pm.password = l.Theme.EditorPassword(new(widget.Editor), values.String(values.StrSpendingPassword))
+	pm.password.Editor.SingleLine, pm.password.Editor.Submit = true, true
+
+	pm.materialLoader = material.Loader(l.Theme.Base)
+
+	return pm
+}
+
+func (pm *PasswordModal) OnResume() {
+	pm.password.Editor.Focus()
+}
+
+func (pm *PasswordModal) OnDismiss() {
+
+}
+
+func (pm *PasswordModal) Title(title string) *PasswordModal {
+	pm.dialogTitle = title
+	return pm
+}
+
+func (pm *PasswordModal) Description(description string) *PasswordModal {
+	pm.description = description
+	return pm
+}
+
+func (pm *PasswordModal) UseCustomWidget(layout layout.Widget) *PasswordModal {
+	pm.customWidget = layout
+	return pm
+}
+
+func (pm *PasswordModal) Hint(hint string) *PasswordModal {
+	pm.password.Hint = hint
+	return pm
+}
+
+func (pm *PasswordModal) PositiveButton(text string, clicked func(password string, m *PasswordModal) bool) *PasswordModal {
+	pm.positiveButtonText = text
+	pm.positiveButtonClicked = clicked
+	return pm
+}
+
+func (pm *PasswordModal) NegativeButton(text string, clicked func()) *PasswordModal {
+	pm.negativeButtonText = text
+	pm.negativeButtonClicked = clicked
+	return pm
+}
+
+func (pm *PasswordModal) SetLoading(loading bool) {
+	pm.isLoading = loading
+	pm.Modal.SetDisabled(loading)
+}
+
+func (pm *PasswordModal) SetCancelable(min bool) *PasswordModal {
+	pm.isCancelable = min
+	return pm
+}
+
+func (pm *PasswordModal) SetError(err string) {
+	if err == "" {
+		pm.password.ClearError()
+	} else {
+		pm.password.SetError(err)
+	}
+}
+
+func (pm *PasswordModal) Handle() {
+	isSubmit, isChanged := components.HandleEditorEvents(pm.password.Editor)
+	if isChanged {
+		pm.password.SetError("")
+	}
+
+	if pm.btnPositve.Button.Clicked() || isSubmit {
+
+		if !editorsNotEmpty(pm.password.Editor) {
+			pm.password.SetError(values.String(values.StrEnterSpendingPassword))
+			return
+		}
+
+		if pm.isLoading {
+			return
+		}
+
+		pm.SetLoading(true)
+		pm.SetError("")
+		if pm.positiveButtonClicked(pm.password.Editor.Text(), pm) {
+			pm.Dismiss()
+		}
+	}
+
+	pm.btnNegative.SetEnabled(!pm.isLoading)
+	for pm.btnNegative.Clicked() {
+		if !pm.isLoading {
+			pm.Dismiss()
+			pm.negativeButtonClicked()
+		}
+	}
+
+	if pm.Modal.BackdropClicked(pm.isCancelable) {
+		if !pm.isLoading {
+			pm.Dismiss()
+			pm.negativeButtonClicked()
+		}
+	}
+}
+
+func (pm *PasswordModal) Layout(gtx layout.Context) D {
+	title := func(gtx C) D {
+		t := pm.Theme.H6(pm.dialogTitle)
+		t.Font.Weight = text.SemiBold
+		return t.Layout(gtx)
+	}
+
+	description := func(gtx C) D {
+		t := pm.Theme.Body2(pm.description)
+		return t.Layout(gtx)
+	}
+
+	editor := func(gtx C) D {
+		return pm.password.Layout(gtx)
+	}
+
+	actionButtons := func(gtx C) D {
+		return layout.E.Layout(gtx, func(gtx C) D {
+			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+				layout.Rigid(func(gtx C) D {
+					if pm.negativeButtonText == "" || pm.isLoading {
+						return layout.Dimensions{}
+					}
+
+					pm.btnNegative.Text = pm.negativeButtonText
+					return pm.btnNegative.Layout(gtx)
+				}),
+				layout.Rigid(func(gtx C) D {
+					if pm.isLoading {
+						return pm.materialLoader.Layout(gtx)
+					}
+
+					if pm.positiveButtonText == "" {
+						return layout.Dimensions{}
+					}
+
+					pm.btnPositve.Text = pm.positiveButtonText
+					return pm.btnPositve.Layout(gtx)
+				}),
+			)
+		})
+	}
+	var w []layout.Widget
+
+	w = append(w, title)
+
+	if pm.description != "" {
+		w = append(w, description)
+	}
+
+	if pm.customWidget != nil {
+		w = append(w, pm.customWidget)
+	}
+
+	w = append(w, editor)
+	w = append(w, actionButtons)
+
+	return pm.Modal.Layout(gtx, w)
+}
